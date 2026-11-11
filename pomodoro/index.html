@@ -22,7 +22,7 @@
     --muted: #8b8b88; --track: #e1e1de; --btn: #ffffff; --btnBorder: #d3d3d0;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { background: var(--bg); }
+  html, body { background: var(--bg); height: 100%; }
   body {
     font-family: Inter, ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     color: var(--text);
@@ -36,7 +36,12 @@
     border-radius: 10px;
     padding: 16px 18px 18px;
     position: relative;
+    min-height: calc(100vh - 12px);
+    display: flex;
+    flex-direction: column;
   }
+  .rows { flex: 1; display: flex; flex-direction: column; justify-content: space-between; gap: 12px; }
+  .rows > .row { margin-top: 0; }
   .dot { position: absolute; top: 16px; right: 18px; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); opacity: .6; }
   .dot.on { background: var(--accent); opacity: 1; box-shadow: 0 0 6px var(--accent); }
   .dot.on.brk { background: var(--break); box-shadow: 0 0 6px var(--break); }
@@ -71,6 +76,7 @@
     <div class="time" id="time">25:00</div>
     <div class="sub" id="sub">Work · Cycle 1 of 4</div>
     <hr>
+    <div class="rows">
     <div class="row">
       <div class="label"><span>Cycles</span><b id="cyc">0 / 4</b></div>
       <div class="segs" id="segs"></div>
@@ -89,6 +95,7 @@
         <button class="btn" id="reset">Reset</button>
         <button class="btn" id="skip">Skip</button>
       </div>
+    </div>
     </div>
   </div>
 <script>
