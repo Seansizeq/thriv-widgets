@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your Stats</title>
+<style>
+  :root { --bg:#191919; --card:#202020; --border:#2e2e2e; --text:#e6e6e6; --muted:#8a8a8a; --grid:#2c2c2c; --line:#4a9be8; --tab:#2a2a2a; }
+  body.light { --bg:#fff; --card:#f7f7f5; --border:#e6e6e3; --text:#2f2f2f; --muted:#8b8b88; --grid:#e6e6e3; --tab:#ececea; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); height: 100%; }
+  body { font-family: Inter, ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--text); padding: 6px; -webkit-font-smoothing: antialiased; user-select: none; }
+  .wrap { height: calc(100vh - 12px); display: flex; flex-direction: column; }
+  .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .tabs { display: flex; gap: 4px; }
+  .tab { font: inherit; font-size: 12px; color: var(--muted); background: transparent; border: none; border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  .tab.on { background: var(--tab); color: var(--text); font-weight: 500; }
+  .avg { font-size: 11.5px; color: var(--muted); }
+  .avg b { color: var(--text); }
+  #chart { flex: 1; min-height: 160px; position: relative; }
+  svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .gl { stroke: var(--grid); stroke-width: 1; }
+  .ax { fill: var(--muted); font-size: 10px; }
+  .pv { fill: var(--muted); font-size: 9.5px; text-anchor: middle; }
+  .legend { display: flex; justify-content: center; align-items: center; gap: 6px; font-size: 10.5px; color: var(--muted); margin-top: 4px; }
+  .legend i { width: 14px; height: 2px; background: var(--line); display: inline-block; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div class="tabs">
+        <button class="tab" data-d="30">30 days</button>
+        <button class="tab" data-d="90">90 days</button>
+      </div>
+      <div class="avg" id="avg"></div>
+    </div>
+    <div id="chart"></div>
+    <div class="legend"><i></i>Habits done per day</div>
+  </div>
+<script>
+(function () {
+  var params = new URLSearchParams(location.search);
+  if (params.get('theme') === 'light') document.body.classList.add('light');
+  var KEY = 'thriv-habits-v1';
+  var days = 30;
+  try { days = parseInt(localStorage.getItem('thriv-stats-days'), 10) || 30; } catch (e) {}
+  var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  function load() { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; } }
+  function iso(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+
+  function series() {
+    var data = load(), habits = data.habits || {}, names = data.names || Object.keys(habits);
+    var max = Math.max(names.length, 1), out = [], today = new Date();
+    for (var i = days - 1; i >= 0; i--) {
+      var d = new Date(today); d.setDate(d.getDate() - i);
+      var k = iso(d), v = 0;
+      names.forEach(function (n) { if (habits[n] && habits[n][k]) v++; });
+      out.push({ d: d, v: v });
+    }
+    return { pts: out, max: max };
+  }
+
+  // Monotone cubic interpolation (no overshoot above/below real values)
+  function path(p) {
+    var n = p.length; if (n < 2) return '';
+    var dx = [], dy = [], m = [], t = [];
+    for (var i = 0; i < n - 1; i++) { dx[i] = p[i + 1][0] - p[i][0]; dy[i] = p[i + 1][1] - p[i][1]; m[i] = dy[i] / dx[i]; }
+    t[0] = m[0]; t[n - 1] = m[n - 2];
+    for (var j = 1; j < n - 1; j++) t[j] = (m[j - 1] * m[j] <= 0) ? 0 : (m[j - 1] + m[j]) / 2;
+    for (var k = 0; k < n - 1; k++) {
+      if (m[k] === 0) { t[k] = 0; t[k + 1] = 0; continue; }
+      var a = t[k] / m[k], b = t[k + 1] / m[k], h = a * a + b * b;
+      if (h > 9) { var s3 = 3 / Math.sqrt(h); t[k] = s3 * a * m[k]; t[k + 1] = s3 * b * m[k]; }
+    }
+    var d = 'M' + p[0][0] + ',' + p[0][1];
+    for (var q = 0; q < n - 1; q++) {
+      var h3 = dx[q] / 3;
+      d += ' C' + (p[q][0] + h3) + ',' + (p[q][1] + t[q] * h3) + ' ' + (p[q + 1][0] - h3) + ',' + (p[q + 1][1] - t[q + 1] * h3) + ' ' + p[q + 1][0] + ',' + p[q + 1][1];
+    }
+    return d;
+  }
+
+  function render() {
+    document.querySelectorAll('.tab').forEach(function (t) { t.classList.toggle('on', +t.dataset.d === days); });
+    var s = series(), box = document.getElementById('chart'), W = box.clientWidth, H = box.clientHeight;
+    var L = 24, R = 10, T = 14, B = 22, iw = W - L - R, ih = H - T - B;
+    var line = getComputedStyle(document.body).getPropertyValue('--line').trim();
+    var x = function (i) { return L + (s.pts.length === 1 ? iw / 2 : i * iw / (s.pts.length - 1)); };
+    var y = function (v) { return T + ih - (v / s.max) * ih; };
+    var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + line + '" stop-opacity=".22"/><stop offset="1" stop-color="' + line + '" stop-opacity="0"/></linearGradient></defs>';
+    var step = s.max <= 6 ? 2 : Math.ceil(s.max / 4);
+    for (var g = 0; g <= s.max; g += step) svg += '<line class="gl" x1="' + L + '" x2="' + (W - R) + '" y1="' + y(g) + '" y2="' + y(g) + '"/><text class="ax" x="' + (L - 8) + '" y="' + (y(g) + 3) + '" text-anchor="end">' + g + '</text>';
+    var pts = s.pts.map(function (p, i) { return [x(i), y(p.v)]; });
+    var d = path(pts);
+    svg += '<path d="' + d + ' L' + x(pts.length - 1) + ',' + y(0) + ' L' + x(0) + ',' + y(0) + ' Z" fill="url(#g)"/>';
+    svg += '<path d="' + d + '" fill="none" stroke="' + line + '" stroke-width="1.8"/>';
+    var labelEvery = s.pts.length <= 31 ? 1 : 0;
+    s.pts.forEach(function (p, i) {
+      if (labelEvery) svg += '<text class="pv" x="' + pts[i][0] + '" y="' + (pts[i][1] - 6) + '">' + p.v + '</text>';
+    });
+    var xStep = Math.max(1, Math.round(s.pts.length / Math.max(2, Math.floor(iw / 70))));
+    var lastX = -1e9, lastIdx = s.pts.length - 1;
+    s.pts.forEach(function (p, i) {
+      var want = (i % xStep === 0 && (lastIdx - i >= xStep * 0.6 || i === lastIdx)) || i === lastIdx;
+      if (!want || pts[i][0] - lastX < 46) return; lastX = pts[i][0];
+      svg += '<text class="ax" x="' + pts[i][0] + '" y="' + (H - 4) + '" text-anchor="middle">' + MON[p.d.getMonth()] + ' ' + p.d.getDate() + '</text>';
+    });
+    svg += '</svg>';
+    box.innerHTML = svg;
+    var sum = s.pts.reduce(function (a, p) { return a + p.v; }, 0);
+    document.getElementById('avg').innerHTML = 'Avg <b>' + (sum / s.pts.length).toFixed(1) + '</b> / ' + s.max + ' per day';
+  }
+
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('.tab'); if (!t) return;
+    days = +t.dataset.d; try { localStorage.setItem('thriv-stats-days', days); } catch (x) {} render();
+  });
+  window.addEventListener('storage', function (e) { if (e.key === KEY) render(); });
+  window.addEventListener('resize', render);
+  render();
+  setInterval(render, 60000);
+})();
+</script>
+</body>
+</html>
