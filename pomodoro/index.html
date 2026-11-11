@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pomodoro</title>
+<style>
+  :root {
+    --bg: #191919;
+    --card: #202020;
+    --border: #2e2e2e;
+    --text: #e6e6e6;
+    --muted: #8a8a8a;
+    --accent: #3dbd9a;
+    --break: #5aa6e8;
+    --track: #3a3a3a;
+    --btn: #2a2a2a;
+    --btnBorder: #4a4a4a;
+  }
+  body.light {
+    --bg: #ffffff; --card: #f7f7f5; --border: #e6e6e3; --text: #2f2f2f;
+    --muted: #8b8b88; --track: #e1e1de; --btn: #ffffff; --btnBorder: #d3d3d0;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); }
+  body {
+    font-family: Inter, ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--text);
+    padding: 6px;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px 18px;
+    position: relative;
+  }
+  .dot { position: absolute; top: 16px; right: 18px; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); opacity: .6; }
+  .dot.on { background: var(--accent); opacity: 1; box-shadow: 0 0 6px var(--accent); }
+  .dot.on.brk { background: var(--break); box-shadow: 0 0 6px var(--break); }
+  .title { font-size: 12.5px; font-weight: 500; opacity: .85; }
+  .time { font-size: 26px; font-weight: 700; color: var(--accent); margin-top: 6px; letter-spacing: -.3px; font-variant-numeric: tabular-nums; }
+  .time.brk { color: var(--break); }
+  .sub { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 14px 0 12px; }
+  .label { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--muted); margin-bottom: 7px; }
+  .label b { color: var(--text); font-weight: 600; }
+  .row { margin-top: 12px; }
+  .row:first-of-type { margin-top: 0; }
+  .segs { display: flex; gap: 5px; }
+  .seg { flex: 1; height: 5px; border-radius: 3px; background: var(--track); overflow: hidden; }
+  .seg > i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 3px; transition: width .4s; }
+  .durs { display: flex; gap: 8px; flex-wrap: wrap; }
+  .dur { display: flex; align-items: center; gap: 7px; border: 1px solid var(--btnBorder); border-radius: 6px; padding: 4px 8px; font-size: 11px; color: var(--muted); }
+  .dur b { color: var(--text); font-weight: 600; min-width: 16px; text-align: center; font-variant-numeric: tabular-nums; }
+  .dur small { font-size: 10.5px; }
+  .pm { width: 18px; height: 18px; border: 1px solid var(--btnBorder); border-radius: 4px; background: transparent; color: var(--text); font-size: 12px; line-height: 15px; cursor: pointer; }
+  .pm:hover { border-color: var(--accent); }
+  .ctrls { display: flex; gap: 8px; }
+  .btn { background: var(--btn); border: 1px solid var(--btnBorder); color: var(--text); font: inherit; font-size: 11.5px; font-weight: 600; border-radius: 6px; padding: 5px 12px; cursor: pointer; }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary.on { border-color: var(--accent); color: var(--accent); }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="dot" id="dot"></div>
+    <div class="title">Pomodoro</div>
+    <div class="time" id="time">25:00</div>
+    <div class="sub" id="sub">Work · Cycle 1 of 4</div>
+    <hr>
+    <div class="row">
+      <div class="label"><span>Cycles</span><b id="cyc">0 / 4</b></div>
+      <div class="segs" id="segs"></div>
+    </div>
+    <div class="row">
+      <div class="label"><span>Durations</span></div>
+      <div class="durs">
+        <div class="dur">Work <button class="pm" data-k="work" data-d="-1">−</button><b id="work">25</b><small>m</small><button class="pm" data-k="work" data-d="1">+</button></div>
+        <div class="dur">Break <button class="pm" data-k="brk" data-d="-1">−</button><b id="brk">5</b><small>m</small><button class="pm" data-k="brk" data-d="1">+</button></div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="label"><span>Controls</span></div>
+      <div class="ctrls">
+        <button class="btn primary" id="start">Start</button>
+        <button class="btn" id="reset">Reset</button>
+        <button class="btn" id="skip">Skip</button>
+      </div>
+    </div>
+  </div>
+<script>
+  (function () {
+    var params = new URLSearchParams(location.search);
+    if (params.get('theme') === 'light') document.body.classList.add('light');
+    var CYCLES = Math.max(1, Math.min(8, parseInt(params.get('cycles') || '4', 10) || 4));
+    var KEY = 'thriv-pomodoro-v1';
+
+    function fresh(work, brk) {
+      return { work: work, brk: brk, phase: 'work', cycle: 1, done: 0, running: false, endAt: 0, left: work * 60 };
+    }
+    var s;
+    try { s = JSON.parse(localStorage.getItem(KEY)); } catch (e) { s = null; }
+    if (!s || typeof s.work !== 'number') s = fresh(25, 5);
+    function save() { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} }
+
+    var segWrap = document.getElementById('segs');
+    for (var i = 0; i < CYCLES; i++) {
+      var d = document.createElement('div'); d.className = 'seg'; d.appendChild(document.createElement('i')); segWrap.appendChild(d);
+    }
+
+    var audioCtx = null;
+    function beep() {
+      try {
+        audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+        [0, 0.28, 0.56].forEach(function (t) {
+          var o = audioCtx.createOscillator(), g = audioCtx.createGain();
+          o.type = 'sine'; o.frequency.value = 880;
+          g.gain.setValueAtTime(0.0001, audioCtx.currentTime + t);
+          g.gain.exponentialRampToValueAtTime(0.25, audioCtx.currentTime + t + 0.02);
+          g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + t + 0.22);
+          o.connect(g); g.connect(audioCtx.destination);
+          o.start(audioCtx.currentTime + t); o.stop(audioCtx.currentTime + t + 0.25);
+        });
+      } catch (e) {}
+    }
+
+    function phaseLen() { return (s.phase === 'work' ? s.work : s.brk) * 60; }
+    function remaining() {
+      if (s.running) return Math.max(0, Math.round((s.endAt - Date.now()) / 1000));
+      return s.left;
+    }
+
+    function advance(silent) {
+      if (s.phase === 'work') {
+        s.done = Math.min(CYCLES, s.done + 1);
+        if (s.done >= CYCLES) { s.running = false; s.phase = 'finished'; s.left = 0; if (!silent) beep(); save(); return; }
+        s.phase = 'break';
+      } else if (s.phase === 'break') {
+        s.phase = 'work'; s.cycle = Math.min(CYCLES, s.cycle + 1);
+      }
+      s.left = phaseLen();
+      if (s.running) s.endAt = Date.now() + s.left * 1000;
+      if (!silent) beep();
+      save();
+    }
+
+    function fmt(sec) { var m = Math.floor(sec / 60), r = sec % 60; return (m < 10 ? '0' : '') + m + ':' + (r < 10 ? '0' : '') + r; }
+
+    function render() {
+      if (s.running && s.phase !== 'finished' && remaining() <= 0) advance(false);
+      var left = s.phase === 'finished' ? 0 : remaining();
+      var isBreak = s.phase === 'break';
+      var t = document.getElementById('time');
+      t.textContent = s.phase === 'finished' ? 'Done ✓' : fmt(left);
+      t.classList.toggle('brk', isBreak);
+      document.getElementById('sub').textContent =
+        s.phase === 'finished' ? 'All ' + CYCLES + ' cycles complete'
+        : (isBreak ? 'Break' : 'Work') + ' · Cycle ' + s.cycle + ' of ' + CYCLES + (s.running ? '' : (left === phaseLen() ? '' : ' · Paused'));
+      document.getElementById('cyc').textContent = s.done + ' / ' + CYCLES;
+      var bars = segWrap.querySelectorAll('.seg > i');
+      for (var k = 0; k < CYCLES; k++) {
+        var w = 0;
+        if (k < s.done) w = 100;
+        else if (k === s.done && s.phase === 'work') w = (1 - left / (s.work * 60)) * 100;
+        bars[k].style.width = w + '%';
+      }
+      document.getElementById('work').textContent = s.work;
+      document.getElementById('brk').textContent = s.brk;
+      var dot = document.getElementById('dot');
+      dot.classList.toggle('on', s.running);
+      dot.classList.toggle('brk', isBreak);
+      var st = document.getElementById('start');
+      st.textContent = s.running ? 'Pause' : 'Start';
+      st.classList.toggle('on', s.running);
+      document.title = s.running ? fmt(left) + ' · Pomodoro' : 'Pomodoro';
+    }
+
+    document.getElementById('start').onclick = function () {
+      if (s.phase === 'finished') s = fresh(s.work, s.brk);
+      if (s.running) { s.left = remaining(); s.running = false; }
+      else { s.running = true; s.endAt = Date.now() + s.left * 1000; }
+      try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+      save(); render();
+    };
+    document.getElementById('reset').onclick = function () { s = fresh(s.work, s.brk); save(); render(); };
+    document.getElementById('skip').onclick = function () {
+      if (s.phase === 'finished') return;
+      if (!s.running) s.left = phaseLen();
+      advance(true); render();
+    };
+    [].forEach.call(document.querySelectorAll('.pm'), function (b) {
+      b.onclick = function () {
+        var k = b.dataset.k, d = parseInt(b.dataset.d, 10);
+        var max = k === 'work' ? 90 : 30;
+        s[k] = Math.max(1, Math.min(max, s[k] + d));
+        var active = (k === 'work' && s.phase === 'work') || (k === 'brk' && s.phase === 'break');
+        if (active && !s.running) s.left = phaseLen();
+        save(); render();
+      };
+    });
+
+    render();
+    setInterval(render, 250);
+  })();
+</script>
+</body>
+</html>
